@@ -77,12 +77,13 @@ jobs:
       - name: Generate immutable file inventory
         run: python3 scripts/audit/generate_pinned_inventory.py
 
-      - name: Capture dependency manifests
+      - name: Capture dependency and license evidence
         shell: bash
         run: |
           mkdir -p audit-artifacts
           go list -m -json all > audit-artifacts/wacalls-go-modules.json
           (cd client && npm ls --all --json > ../audit-artifacts/wacalls-npm-tree.json) || true
+          python3 scripts/audit/generate_license_inventory.py
           git show -s --format='%H%n%cI%n%s' 2ce896ad31fe2915ef0d599c83c62dc966eda7b9 > audit-artifacts/wacalls-source-snapshot.txt
 
       - name: Upload Phase 0 evidence
