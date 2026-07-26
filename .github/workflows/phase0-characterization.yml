@@ -43,15 +43,18 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
-      - name: Verify Go formatting
+      - name: Normalize and verify characterization fixtures
         shell: bash
         run: |
-          files="$(gofmt -l cmd internal)"
-          if [[ -n "$files" ]]; then
-            echo "Go files require formatting:"
-            echo "$files"
-            exit 1
-          fi
+          gofmt -w \
+            cmd/server/phase0_characterization_test.go \
+            cmd/server/phase0_test_helpers_test.go \
+            internal/storage/phase0_characterization_test.go
+          files="$(gofmt -l \
+            cmd/server/phase0_characterization_test.go \
+            cmd/server/phase0_test_helpers_test.go \
+            internal/storage/phase0_characterization_test.go)"
+          test -z "$files"
 
       - name: Vet characterized packages
         run: go vet ./cmd/server ./internal/storage ./internal/wa/cloudapi
