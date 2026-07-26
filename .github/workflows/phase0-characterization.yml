@@ -1,0 +1,95 @@
+name: Phase 0 WaCalls Characterization
+
+on:
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "client/**"
+      - "scripts/audit/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/phase0-characterization.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0-characterization-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  characterize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout full source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Normalize and verify characterization fixtures
+        shell: bash
+        run: |
+          gofmt -w \
+            cmd/server/phase0_characterization_test.go \
+            cmd/server/phase0_test_helpers_test.go \
+            internal/storage/phase0_characterization_test.go
+          files="$(gofmt -l \
+            cmd/server/phase0_characterization_test.go \
+            cmd/server/phase0_test_helpers_test.go \
+            internal/storage/phase0_characterization_test.go)"
+          test -z "$files"
+
+      - name: Vet characterized packages
+        run: go vet ./cmd/server ./internal/storage ./internal/wa/cloudapi
+
+      - name: Run backend characterization tests
+        run: go test -count=1 -timeout=12m ./cmd/server ./internal/storage ./internal/wa/cloudapi
+
+      - name: Install frontend dependencies from lockfile
+        working-directory: client
+        run: npm ci --no-audit --no-fund
+
+      - name: Build legacy agent console
+        working-directory: client
+        run: npm run build
+
+      - name: Generate frontend characterization
+        working-directory: client
+        run: npm run test:characterization
+
+      - name: Generate immutable file inventory
+        run: python3 scripts/audit/generate_pinned_inventory.py
+
+      - name: Capture dependency and license evidence
+        shell: bash
+        run: |
+          mkdir -p audit-artifacts
+          go list -m -json all > audit-artifacts/wacalls-go-modules.json
+          (cd client && npm ls --all --json > ../audit-artifacts/wacalls-npm-tree.json) || true
+          python3 scripts/audit/generate_license_inventory.py
+          git show -s --format='%H%n%cI%n%s' 2ce896ad31fe2915ef0d599c83c62dc966eda7b9 > audit-artifacts/wacalls-source-snapshot.txt
+
+      - name: Upload Phase 0 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-wacalls-evidence
+          path: audit-artifacts/
+          if-no-files-found: error
+          retention-days: 90
